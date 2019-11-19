@@ -1465,10 +1465,16 @@ local function parseHotHeal(casterGUID, wasUpdated, spellID, tickAmount, totalTi
 	if( not tickAmount or not spellName or select("#", ...) == 0 ) then return end
 
 	-- Retrieve the hot information
-	local inc = ( tickAmount == -1 or tickAmount == "-1" ) and 2 or 1
+	local inc = 2
 	local stack, duration, endTime = findAura(casterGUID, spellID, ...)
 
-	if( not stack or not duration or not endTime ) then return end
+	if not ( tickAmount == -1 or tickAmount == "-1" ) then
+		inc = 1
+		duration = totalTicks * tickInterval
+		endTime = GetTime() + duration
+	end
+
+	if( not stack or stack == 0 or duration == 0 or endTime == 0 ) then return end
 
 	pendingHots[casterGUID] = pendingHots[casterGUID] or {}
 	pendingHots[casterGUID][spellName] = pendingHots[casterGUID][spellName] or {}
