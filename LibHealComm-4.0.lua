@@ -1389,7 +1389,7 @@ local function parseChannelHeal(casterGUID, spellID, amount, totalTicks, ...)
 	local unit = guidToUnit[casterGUID]
 	if( not unit or not spellName or not totalTicks or not amount or select("#", ...) == 0 ) then return end
 
-	spellData[spellName]._isChanneled = true
+	local tickInterval = spellName == GetSpellInfo(740) and 2 or 1
 
 	local startTime, endTime
 	if unit == "player" then
@@ -1398,15 +1398,8 @@ local function parseChannelHeal(casterGUID, spellID, amount, totalTicks, ...)
 		startTime = startTime / 1000
 		endTime = endTime / 1000
 	else
-		local duration
-		if spellName == GetSpellInfo(746) then
-			duration = spellData[spellName].ticks[SpellIDToRank[spellName]]
-		else
-			duration = (spellName == GetSpellInfo(136) and 5 or 10)
-		end
-
 		startTime = GetTime()
-		endTime = GetTime() + duration
+		endTime = startTime + totalTicks * tickInterval
 	end
 
 	pendingHots[casterGUID] = pendingHots[casterGUID] or {}
@@ -1817,6 +1810,7 @@ function HealComm:UNIT_SPELLCAST_START(unit, cast, spellID)
 		parseDirectHeal(playerGUID, spellID, amt, (endTime - startTime) / 1000, strsplit(",", targets))
 		sendMessage(format("D:%d:%d:%d:%s", (endTime - startTime) / 1000, spellID or 0, amt or "", targets))
 	elseif( bitType == CHANNEL_HEALS ) then
+		spellData[spellName]._isChanneled = true
 		parseChannelHeal(playerGUID, spellID, amt, ticks, strsplit(",", targets))
 		sendMessage(format("C::%d:%d:%s:%s", spellID or 0, amt, ticks, targets))
 	end
