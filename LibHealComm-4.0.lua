@@ -1721,9 +1721,11 @@ function HealComm:COMBAT_LOG_EVENT_UNFILTERED(...)
 					else
 						endTime = GetTime() + totalTicks * tickInterval
 					end
-					local ticksLeft = floor((endTime - GetTime()) / tickInterval)
-					parseChannelHeal(sourceGUID, spellID, amt, ticksLeft, strsplit(",", targets))
-					sendMessage(format("C::%d:%d:%s:%s", spellID, amt, ticksLeft, targets))
+					local ticksLeft = min(floor((endTime - GetTime() + 0.001) / tickInterval), totalTicks)
+					if ticksLeft > 0 then
+						parseChannelHeal(sourceGUID, spellID, amt, ticksLeft, strsplit(",", targets))
+						sendMessage(format("C::%d:%d:%s:%s", spellID, amt, ticksLeft, targets))
+					end
 				end
 			end
 		end
