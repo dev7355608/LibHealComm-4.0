@@ -1664,7 +1664,8 @@ function HealComm:COMBAT_LOG_EVENT_UNFILTERED(...)
 	if( not eventRegistered[eventType] ) then return end
 
 	local _, spellName = select(12, ...)
-	local spellID = select(7, GetSpellInfo(spellName))
+	local destUnit = guidToUnit[destGUID]
+	local spellID = destUnit and select(10, unitHasAura(destUnit, spellName)) or select(7, GetSpellInfo(spellName))
 
 	-- Heal or hot ticked that the library is tracking
 	-- It's more efficient/accurate to have the library keep track of this locally, spamming the comm channel would not be a very good thing especially when a single player can have 4 - 8 hots/channels going on them.
@@ -1709,6 +1710,22 @@ function HealComm:COMBAT_LOG_EVENT_UNFILTERED(...)
 					sendMessage(format("H:%d:%d:%d::%d:%s", totalTicks, spellID, amount, tickInterval, targets))
 				end
 			end
+		elseif spellData[spellName] and spellData[spellName]._isChanneled then
+			local bitType, amount, totalTicks, tickInterval = CalculateHealing(destGUID, spellID, destUnit)
+			if bitType == CHANNEL_HEALS then
+				local targets, amt = compressGUID[destGUID], max(amount, 0)
+				if targets then
+					local endTime = select(5, ChannelInfo())
+					if endTime then
+						endTime = endTime / 1000
+					else
+						endTime = GetTime() + totalTicks * tickInterval
+					end
+					local ticksLeft = floor((endTime - GetTime()) / tickInterval)
+					parseChannelHeal(sourceGUID, spellID, amt, ticksLeft, strsplit(",", targets))
+					sendMessage(format("C::%d:%d:%s:%s", spellID, amt, ticksLeft, targets))
+				end
+			end
 		end
 	-- Single stack of a hot was removed, this only applies when going from 2 -> 1, when it goes from 1 -> 0 it fires SPELL_AURA_REMOVED
 	elseif( eventType == "SPELL_AURA_REMOVED_DOSE" and bit.band(sourceFlags, COMBATLOG_OBJECT_AFFILIATION_MINE) == COMBATLOG_OBJECT_AFFILIATION_MINE ) then
@@ -1721,11 +1738,16 @@ function HealComm:COMBAT_LOG_EVENT_UNFILTERED(...)
 			end
 		end
 	-- Aura faded
-	elseif( eventType == "SPELL_AURA_REMOVED" ) then
-		-- Hot faded that we cast
-		if( hotData[spellName] and compressGUID[destGUID] and bit.band(sourceFlags, COMBATLOG_OBJECT_AFFILIATION_MINE) == COMBATLOG_OBJECT_AFFILIATION_MINE ) then
-			parseHealEnd(sourceGUID, nil, "id", spellID, false, compressGUID[destGUID])
-			sendMessage(format("HS::%d::%s", spellID, compressGUID[destGUID]))
+	elseif( eventType == "SPELL_AURA_REMOVED" and bit.band(sourceFlags, COMBATLOG_OBJECT_AFFILIATION_MINE) == COMBATLOG_OBJECT_AFFILIATION_MINE ) then
+		if compressGUID[destGUID] then
+			-- Hot faded that we cast
+			if hotData[spellName] then
+				parseHealEnd(sourceGUID, nil, "id", spellID, false, compressGUID[destGUID])
+				sendMessage(format("HS::%d::%s", spellID, compressGUID[destGUID]))
+			elseif spellData[spellName] and spellData[spellName]._isChanneled then
+				parseHealEnd(sourceGUID, nil, "id", spellID, false, compressGUID[destGUID])
+				sendMessage(format("S::%d:0:%s", spellID, compressGUID[destGUID]))
+			end
 		end
 	end
 end
@@ -1811,8 +1833,6 @@ function HealComm:UNIT_SPELLCAST_START(unit, cast, spellID)
 		sendMessage(format("D:%d:%d:%d:%s", (endTime - startTime) / 1000, spellID or 0, amt or "", targets))
 	elseif( bitType == CHANNEL_HEALS ) then
 		spellData[spellName]._isChanneled = true
-		parseChannelHeal(playerGUID, spellID, amt, ticks, strsplit(",", targets))
-		sendMessage(format("C::%d:%d:%s:%s", spellID or 0, amt, ticks, targets))
 	end
 end
 
@@ -1846,7 +1866,7 @@ end
 
 function HealComm:UNIT_SPELLCAST_STOP(unit, castGUID, spellID)
 	local spellName = GetSpellInfo(spellID)
-	if( unit ~= "player" or not spellData[spellName]) then return end
+	if( unit ~= "player" or not spellData[spellName] or spellData[spellName]._isChanneled ) then return end
 
 	parseHealEnd(playerGUID, nil, "name", spellID, true)
 	sendMessage(format("S::%d:1", spellID or 0))
@@ -1856,8 +1876,6 @@ function HealComm:UNIT_SPELLCAST_CHANNEL_STOP(unit, castGUID, spellID)
 	local spellName = GetSpellInfo(spellID)
 	if( unit ~= "player" or not spellData[spellName]) then return end
 
-	parseHealEnd(playerGUID, nil, "name", spellID, false)
-	sendMessage(format("S::%d:0", spellID or 0))
 end
 
 -- Cast didn't go through, recheck any charge data if necessary
